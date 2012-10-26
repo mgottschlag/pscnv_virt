@@ -46,7 +46,7 @@ struct pscnv_bo {
 	uint32_t user[8];
 	struct drm_gem_object *gem;
 	/* list of offsets into virtual vram */
-	/*uint32_t *pages;*/
+	uint32_t *pages;
 	/* CHAN only, pointer to a channel (FreeBSD doesn't allow overriding mmap) */
 	struct pscnv_chan *chan;
 };
