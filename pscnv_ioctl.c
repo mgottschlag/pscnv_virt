@@ -3,8 +3,8 @@
 /*#include "nouveau_reg.h"*/
 #include "pscnv_ioctl.h"
 #include "pscnv_vm.h"
-/*#include "pscnv_chan.h"
-#include "pscnv_fifo.h"*/
+#include "pscnv_chan.h"
+/*#include "pscnv_fifo.h"*/
 #include "pscnv_gem.h"
 #include "pscnv_drm.h"
 /*#include "nv50_chan.h"
@@ -15,6 +15,8 @@
 //#include "nvc0_pgraph.xml.h"
 
 #include "pscnv_virt_call.h"
+
+#include <linux/spinlock.h>
 
 #define PTIMER_TIME_REG 0x4
 #define GPU_INFO_REG_BASE 0x8
@@ -174,66 +176,60 @@ int pscnv_ioctl_gem_info(struct drm_device *dev, void *data,
 static struct pscnv_vspace *
 pscnv_get_vspace(struct drm_device *dev, struct drm_file *file_priv, int vid)
 {
-#if 0
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	unsigned long flags;
-	spin_lock_irqsave(&dev_priv->vm->vs_lock, flags);
+	spin_lock_irqsave(&dev_priv->vs_lock, flags);
 
-	if (vid < 128 && vid >= 0 && dev_priv->vm->vspaces[vid] && dev_priv->vm->vspaces[vid]->filp == file_priv) {
-		struct pscnv_vspace *res = dev_priv->vm->vspaces[vid];
+	if (vid < 128 && vid >= 0 && dev_priv->vspaces[vid] && dev_priv->vspaces[vid]->filp == file_priv) {
+		struct pscnv_vspace *res = dev_priv->vspaces[vid];
 		pscnv_vspace_ref(res);
-		spin_unlock_irqrestore(&dev_priv->vm->vs_lock, flags);
+		spin_unlock_irqrestore(&dev_priv->vs_lock, flags);
 		return res;
 	}
-	spin_unlock_irqrestore(&dev_priv->vm->vs_lock, flags);
+	spin_unlock_irqrestore(&dev_priv->vs_lock, flags);
 	return 0;
-#endif
-	return -0;
 }
 
 int pscnv_ioctl_vspace_new(struct drm_device *dev, void *data,
 						struct drm_file *file_priv)
 {
-#if 0
 	struct drm_pscnv_vspace_req *req = data;
-	struct pscnv_vspace *vs;
+	struct pscnv_vspace *vspace;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
-	vs = pscnv_vspace_new(dev, 1ull << 40, 0, 0);
-	if (!vs)
+	/* create a vspace */
+	vspace = pscnv_vspace_new(dev);
+	if (vspace == 0) {
 		return -ENOMEM;
+	}
 
-	req->vid = vs->vid;
+	vspace->filp = file_priv;
 
-	vs->filp = file_priv;
-
+	req->vid = vspace->vid;
 	return 0;
-#endif
-	return -EINVAL;
 }
 
 int pscnv_ioctl_vspace_free(struct drm_device *dev, void *data,
 						struct drm_file *file_priv)
 {
-#if 0
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	struct drm_pscnv_vspace_req *req = data;
-	int vid = req->vid;
 	struct pscnv_vspace *vs;
+	unsigned long flags;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
-	vs = pscnv_get_vspace(dev, file_priv, vid);
+	vs = pscnv_get_vspace(dev, file_priv, req->vid);
 	if (!vs)
 		return -ENOENT;
+
+	spin_lock_irqsave(&dev_priv->vs_lock, flags);
+	BUG_ON(dev_priv->vspaces[vs->vid] != vs);
+	dev_priv->vspaces[vs->vid] = 0;
+	spin_unlock_irqrestore(&dev_priv->vs_lock, flags);
 
 	vs->filp = 0;
 	pscnv_vspace_unref(vs);
 	pscnv_vspace_unref(vs);
 
 	return 0;
-#endif
-	return -EINVAL;
 }
 
 int pscnv_ioctl_vspace_map(struct drm_device *dev, void *data,
@@ -310,88 +306,142 @@ void pscnv_vspace_cleanup(struct drm_device *dev, struct drm_file *file_priv) {
 	}
 }
 
+
 struct pscnv_chan *
 pscnv_get_chan(struct drm_device *dev, struct drm_file *file_priv, int cid)
 {
-#if 0
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	unsigned long flags;
-	spin_lock_irqsave(&dev_priv->chan->ch_lock, flags);
+	spin_lock_irqsave(&dev_priv->ch_lock, flags);
 
-	if (cid < 128 && cid >= 0 && dev_priv->chan->chans[cid] && dev_priv->chan->chans[cid]->filp == file_priv) {
-		struct pscnv_chan *res = dev_priv->chan->chans[cid];
+	if (cid < 128 && cid >= 0 && dev_priv->chans[cid] && dev_priv->chans[cid]->filp == file_priv) {
+		struct pscnv_chan *res = dev_priv->chans[cid];
 		pscnv_chan_ref(res);
-		spin_unlock_irqrestore(&dev_priv->chan->ch_lock, flags);
+		spin_unlock_irqrestore(&dev_priv->ch_lock, flags);
 		return res;
 	}
-	spin_unlock_irqrestore(&dev_priv->chan->ch_lock, flags);
-	return 0;
-#endif
+	spin_unlock_irqrestore(&dev_priv->ch_lock, flags);
 	return 0;
 }
 
 int pscnv_ioctl_chan_new(struct drm_device *dev, void *data,
 						struct drm_file *file_priv)
 {
-#if 0
 	struct drm_pscnv_chan_new *req = data;
 	struct pscnv_vspace *vs;
 	struct pscnv_chan *ch;
-#ifndef __linux__
-	struct drm_gem_object *obj;
-#endif
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
 
 	vs = pscnv_get_vspace(dev, file_priv, req->vid);
 	if (!vs)
 		return -ENOENT;
 
-	ch = pscnv_chan_new(dev, vs, 0);
+	ch = pscnv_chan_new(dev, vs);
 	if (!ch) {
 		pscnv_vspace_unref(vs);
 		return -ENOMEM;
 	}
 	pscnv_vspace_unref(vs);
-#ifndef __linux__
-	if (!(obj = pscnv_gem_wrap(dev, ch->bo))) {
-		pscnv_chan_unref(ch);
-		return -ENOMEM;
-	}
-	req->map_handle = DRM_GEM_MAPPING_OFF(obj->map_list.key) |
-			  DRM_GEM_MAPPING_KEY;
-#else
 	req->map_handle = 0xc0000000 | ch->cid << 16;
-#endif
 
 	req->cid = ch->cid;
 
 	ch->filp = file_priv;
-	
+
+	return 0;
+#if 0
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_chan_new *req = data;
+	volatile struct pscnv_chan_new_cmd *cmd;
+	uint32_t call;
+	uint32_t vid = req->vid;
+	uint32_t cid, map_handle;
+
+	if (req->vid >= PSCNV_VIRT_VSPACE_COUNT
+			|| dev_priv->vspaces[vid].filp != file_priv) {
+		NV_ERROR(dev, "pscnv_ioctl_chan_new: Invalid vspace.\n");
+		return -ENOENT;
+	}
+	/* create a chan */
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_CHAN_NEW;
+	pscnv_virt_call(dev_priv, call);
+	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
+		NV_ERROR(dev, "Failed to create the chan.\n");
+		return -ENOMEM;
+	}
+	cid = cmd->cid;
+	map_handle = cmd->map_handle;
+	pscnv_virt_call_finish(dev_priv, call);
+
+	/* insert the file into the list to mark the vspace as allocated */
+	if (cid >= PSCNV_VIRT_CHAN_COUNT) {
+		NV_ERROR(dev, "Invalid chan id.\n");
+		return -ENOMEM;
+	}
+	if (dev_priv->chans[cid].filp != NULL) {
+		NV_ERROR(dev, "Bug: chan id already in use.\n");
+		return -ENOMEM;
+	}
+	dev_priv->chans[cid].filp = file_priv;
+	dev_priv->chans[cid].map_handle = 
+
+	req->vid = vid;
+	req->map_handle = ((uint64_t)1 << 32) + cid * 0x2000;
+
 	return 0;
 #endif
-	return -EINVAL;
 }
 
 int pscnv_ioctl_chan_free(struct drm_device *dev, void *data,
 						struct drm_file *file_priv)
 {
-#if 0
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	struct drm_pscnv_chan_free *req = data;
 	struct pscnv_chan *ch;
-
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
+	unsigned long flags;
 
 	ch = pscnv_get_chan(dev, file_priv, req->cid);
 	if (!ch)
 		return -ENOENT;
+
+	spin_lock_irqsave(&dev_priv->ch_lock, flags);
+	BUG_ON(dev_priv->chans[ch->cid] != ch);
+	dev_priv->chans[ch->cid] = 0;
+	spin_unlock_irqrestore(&dev_priv->ch_lock, flags);
 
 	ch->filp = 0;
 	pscnv_chan_unref(ch);
 	pscnv_chan_unref(ch);
 
 	return 0;
+#if 0
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_chan_free *req = data;
+	volatile struct pscnv_chan_free_cmd *cmd;
+	uint32_t call;
+
+	if (req->cid >= PSCNV_VIRT_CHAN_COUNT
+			|| dev_priv->chans[req->cid].filp != file_priv) {
+		NV_ERROR(dev, "pscnv_ioctl_chan_free: invalid chan.\n");
+		return -ENOENT;
+	}
+
+	dev_priv->chans[req->cid].filp = NULL;
+
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_CHAN_FREE;
+	cmd->cid = req->cid;
+	pscnv_virt_call(dev_priv, call);
+	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
+		NV_ERROR(dev, "Failed to free the chan.\n");
+		return -ENOMEM;
+	}
+	pscnv_virt_call_finish(dev_priv, call);
+
+	return 0;
 #endif
-	return -EINVAL;
 }
 
 int pscnv_ioctl_obj_vdma_new(struct drm_device *dev, void *data,
@@ -432,7 +482,7 @@ int pscnv_ioctl_obj_vdma_new(struct drm_device *dev, void *data,
 	return -EINVAL;
 }
 
-/*void pscnv_chan_cleanup(struct drm_device *dev, struct drm_file *file_priv) {
+void pscnv_chan_cleanup(struct drm_device *dev, struct drm_file *file_priv) {
 	int cid;
 	struct pscnv_chan *ch;
 
@@ -444,7 +494,7 @@ int pscnv_ioctl_obj_vdma_new(struct drm_device *dev, void *data,
 		pscnv_chan_unref(ch);
 		pscnv_chan_unref(ch);
 	}
-}*/
+}
 
 int pscnv_ioctl_obj_eng_new(struct drm_device *dev, void *data,
 						struct drm_file *file_priv) {

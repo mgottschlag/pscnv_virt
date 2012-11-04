@@ -76,6 +76,10 @@ enum nouveau_card_type {
 	NV_E0      = 0xe0,
 };
 
+#define PSCNV_VIRT_VSPACE_COUNT 128
+
+#define PSCNV_VIRT_CHAN_COUNT 128
+
 struct drm_pscnv_virt_private {
 	struct drm_device *dev;
 
@@ -98,6 +102,11 @@ struct drm_pscnv_virt_private {
 
 	uint64_t vram_size;
 	uint64_t vram_base;
+
+	struct pscnv_vspace *vspaces[PSCNV_VIRT_VSPACE_COUNT];
+	struct pscnv_chan *chans[PSCNV_VIRT_CHAN_COUNT];
+	spinlock_t vs_lock;
+	spinlock_t ch_lock;
 
 	/*struct nouveau_fbdev *nfbdev;
 	struct apertures_struct *apertures;*/

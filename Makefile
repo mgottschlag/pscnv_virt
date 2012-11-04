@@ -1,5 +1,5 @@
 pscnv-y := pscnv_virt_drv.o nouveau_state.o pscnv_ioctl.o pscnv_gem.o \
-	nouveau_irq.o pscnv_virt_call.o pscnv_mem.o
+	nouveau_irq.o pscnv_virt_call.o pscnv_mem.o pscnv_vm.o pscnv_chan.o
 
 obj-m := pscnv.o
 

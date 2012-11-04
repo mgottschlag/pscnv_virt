@@ -41,17 +41,15 @@
 #include "nv50_display.h"
 #include "pscnv_vm.h"
 #include "pscnv_chan.h"
-#include "pscnv_fifo.h"
-#include "pscnv_ioctl.h"*/
+#include "pscnv_fifo.h"*/
+#include "pscnv_ioctl.h"
 
 /* here a client dies, release the stuff that was allocated for its
  * file_priv */
 void nouveau_preclose(struct drm_device *dev, struct drm_file *file_priv)
 {
-#if 0
 	pscnv_chan_cleanup(dev, file_priv);
 	pscnv_vspace_cleanup(dev, file_priv);
-#endif
 }
 
 /* first module load, setup the mmio/fb mapping */
@@ -103,7 +101,7 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 	dev_priv->flags = flags;
 
 	/* resource 0 is mmio regs */
-	/* resource 1 is ring buffer */
+	/* resource 1 is hypercall buffer */
 	/* resource 2 is mapped vram */
 
 	/* map the mmio regs */
@@ -136,6 +134,9 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 		NV_ERROR(dev, "Unable to register the call interrupt.\n");
 		return ret;
 	}
+
+	memset(dev_priv->vspaces, 0, sizeof(dev_priv->vspaces));
+	memset(dev_priv->chans, 0, sizeof(dev_priv->chans));
 
 #if 0
 	struct drm_nouveau_private *dev_priv;

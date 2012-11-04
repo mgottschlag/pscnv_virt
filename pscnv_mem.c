@@ -1,6 +1,7 @@
 
 #include "pscnv_mem.h"
 #include "pscnv_virt_drv.h"
+#include "pscnv_chan.h"
 
 #include "pscnv_virt_call.h"
 
@@ -52,6 +53,26 @@ int pscnv_mem_free(struct pscnv_bo *bo) {
 	return -1;
 }
 
+/*static int pscnv_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+{
+	struct drm_gem_object *obj = vma->vm_private_data;
+	struct pscnv_bo *bo = obj->driver_private;
+	uint64_t offset = (uint64_t)vmf->virtual_address - vma->vm_start;
+	struct page *res;
+	if (offset > bo->size)
+		return VM_FAULT_SIGBUS;
+	res = bo->pages[offset >> PAGE_SHIFT];
+	get_page(res);
+	vmf->page = res;
+	return 0;
+}*/
+
+static struct vm_operations_struct pscnv_vm_ops = {
+	.open = drm_gem_vm_open,
+	.close = drm_gem_vm_close,
+/*	.fault = pscnv_vm_fault,*/
+};
+
 extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 	struct drm_file *priv = filp->private_data;
 	struct drm_device *dev = priv->minor->dev;
@@ -69,8 +90,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 		return drm_mmap(filp, vma);
 
 	if (vma->vm_pgoff * PAGE_SIZE < (1ull << 32))
-		/*return pscnv_chan_mmap(filp, vma);*/
-		return -EINVAL; /* TODO */
+		return pscnv_chan_mmap(filp, vma);
 
 	obj = drm_gem_object_lookup(dev, priv, (vma->vm_pgoff * PAGE_SIZE) >> 32);
 	if (!obj)

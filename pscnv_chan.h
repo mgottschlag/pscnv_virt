@@ -24,35 +24,40 @@
  * Use is subject to license terms.
  */
 
-#ifndef __PSCNV_VM_H__
-#define __PSCNV_VM_H__
+#ifndef __PSCNV_CHAN_H__
+#define __PSCNV_CHAN_H__
 
-struct pscnv_bo;
-struct pscnv_chan;
+#include "pscnv_vm.h"
 
-struct pscnv_vspace {
-	int vid;
+struct pscnv_chan {
 	struct drm_device *dev;
-	struct mutex lock;
+	int cid;
+	uint64_t map_handle;
+	/* protected by ch_lock below, used for lookup */
+	/*uint32_t handle;*/
+	struct pscnv_vspace *vspace;
+	/*struct list_head vspace_list;
+	struct pscnv_bo *bo;*/
+	/*spinlock_t instlock;
+	int instpos;
+	struct pscnv_bo *cache;*/
 	struct drm_file *filp;
 	struct kref ref;
 };
 
+extern struct pscnv_chan *pscnv_chan_new(struct drm_device *dev, struct pscnv_vspace *);
 
-extern struct pscnv_vspace *pscnv_vspace_new(struct drm_device *);
-extern int pscnv_vspace_map(struct pscnv_vspace *, struct pscnv_bo *, uint64_t start, uint64_t end, int back);
-extern int pscnv_vspace_unmap(struct pscnv_vspace *, uint64_t start);
+extern void pscnv_chan_ref_free(struct kref *ref);
 
-extern void pscnv_vspace_ref_free(struct kref *ref);
-
-static inline void pscnv_vspace_ref(struct pscnv_vspace *vs) {
-	kref_get(&vs->ref);
+static inline void pscnv_chan_ref(struct pscnv_chan *ch) {
+	kref_get(&ch->ref);
 }
 
-static inline void pscnv_vspace_unref(struct pscnv_vspace *vs) {
-	kref_put(&vs->ref, pscnv_vspace_ref_free);
+static inline void pscnv_chan_unref(struct pscnv_chan *ch) {
+	kref_put(&ch->ref, pscnv_chan_ref_free);
 }
 
-extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma);
+extern int pscnv_chan_mmap(struct file *filp, struct vm_area_struct *vma);
+extern int pscnv_chan_handle_lookup(struct drm_device *dev, uint32_t handle);
 
 #endif
