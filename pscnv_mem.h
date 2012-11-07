@@ -47,8 +47,6 @@ struct pscnv_bo {
 	struct drm_gem_object *gem;
 	/* list of offsets into virtual vram */
 	uint32_t *pages;
-	/* CHAN only, pointer to a channel (FreeBSD doesn't allow overriding mmap) */
-	struct pscnv_chan *chan;
 };
 
 extern struct pscnv_bo *pscnv_mem_alloc(struct drm_device *,

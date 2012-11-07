@@ -235,15 +235,12 @@ int pscnv_ioctl_vspace_free(struct drm_device *dev, void *data,
 int pscnv_ioctl_vspace_map(struct drm_device *dev, void *data,
 						struct drm_file *file_priv)
 {
-#if 0
 	struct drm_pscnv_vspace_map *req = data;
 	struct pscnv_vspace *vs;
 	struct drm_gem_object *obj;
 	struct pscnv_bo *bo;
-	struct pscnv_mm_node *map;
+	uint64_t offset;
 	int ret;
-
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
 
 	vs = pscnv_get_vspace(dev, file_priv, req->vid);
 	if (!vs)
@@ -257,27 +254,21 @@ int pscnv_ioctl_vspace_map(struct drm_device *dev, void *data,
 
 	bo = obj->driver_private;
 
-	ret = pscnv_vspace_map(vs, bo, req->start, req->end, req->back, &map);
+	ret = pscnv_vspace_map(vs, bo, req->start, req->end, req->back, req->flags, &offset);
 	if (!ret)
-		req->offset = map->start;
+		req->offset = offset;
 
 	pscnv_vspace_unref(vs);
 
 	return ret;
-#endif
-	return -EINVAL;
 }
 
 int pscnv_ioctl_vspace_unmap(struct drm_device *dev, void *data,
 						struct drm_file *file_priv)
 {
-#if 0
 	struct drm_pscnv_vspace_unmap *req = data;
 	struct pscnv_vspace *vs;
 	int ret;
-
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
 
 	vs = pscnv_get_vspace(dev, file_priv, req->vid);
 	if (!vs)
@@ -288,19 +279,25 @@ int pscnv_ioctl_vspace_unmap(struct drm_device *dev, void *data,
 	pscnv_vspace_unref(vs);
 
 	return ret;
-#endif
-	return -EINVAL;
 }
 
 void pscnv_vspace_cleanup(struct drm_device *dev, struct drm_file *file_priv) {
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	int vid;
 	struct pscnv_vspace *vs;
+	unsigned long flags;
 
 	for (vid = 0; vid < 128; vid++) {
 		vs = pscnv_get_vspace(dev, file_priv, vid);
 		if (!vs)
 			continue;
 		vs->filp = 0;
+
+		spin_lock_irqsave(&dev_priv->vs_lock, flags);
+		BUG_ON(dev_priv->vspaces[vs->vid] != vs);
+		dev_priv->vspaces[vs->vid] = 0;
+		spin_unlock_irqrestore(&dev_priv->vs_lock, flags);
+
 		pscnv_vspace_unref(vs);
 		pscnv_vspace_unref(vs);
 	}
@@ -348,49 +345,6 @@ int pscnv_ioctl_chan_new(struct drm_device *dev, void *data,
 	ch->filp = file_priv;
 
 	return 0;
-#if 0
-	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
-	struct drm_pscnv_chan_new *req = data;
-	volatile struct pscnv_chan_new_cmd *cmd;
-	uint32_t call;
-	uint32_t vid = req->vid;
-	uint32_t cid, map_handle;
-
-	if (req->vid >= PSCNV_VIRT_VSPACE_COUNT
-			|| dev_priv->vspaces[vid].filp != file_priv) {
-		NV_ERROR(dev, "pscnv_ioctl_chan_new: Invalid vspace.\n");
-		return -ENOENT;
-	}
-	/* create a chan */
-	call = pscnv_virt_call_alloc(dev_priv);
-	cmd = dev_priv->call_data->handle + call;
-	cmd->command = PSCNV_CMD_CHAN_NEW;
-	pscnv_virt_call(dev_priv, call);
-	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
-		NV_ERROR(dev, "Failed to create the chan.\n");
-		return -ENOMEM;
-	}
-	cid = cmd->cid;
-	map_handle = cmd->map_handle;
-	pscnv_virt_call_finish(dev_priv, call);
-
-	/* insert the file into the list to mark the vspace as allocated */
-	if (cid >= PSCNV_VIRT_CHAN_COUNT) {
-		NV_ERROR(dev, "Invalid chan id.\n");
-		return -ENOMEM;
-	}
-	if (dev_priv->chans[cid].filp != NULL) {
-		NV_ERROR(dev, "Bug: chan id already in use.\n");
-		return -ENOMEM;
-	}
-	dev_priv->chans[cid].filp = file_priv;
-	dev_priv->chans[cid].map_handle = 
-
-	req->vid = vid;
-	req->map_handle = ((uint64_t)1 << 32) + cid * 0x2000;
-
-	return 0;
-#endif
 }
 
 int pscnv_ioctl_chan_free(struct drm_device *dev, void *data,
@@ -415,82 +369,57 @@ int pscnv_ioctl_chan_free(struct drm_device *dev, void *data,
 	pscnv_chan_unref(ch);
 
 	return 0;
-#if 0
-	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
-	struct drm_pscnv_chan_free *req = data;
-	volatile struct pscnv_chan_free_cmd *cmd;
-	uint32_t call;
-
-	if (req->cid >= PSCNV_VIRT_CHAN_COUNT
-			|| dev_priv->chans[req->cid].filp != file_priv) {
-		NV_ERROR(dev, "pscnv_ioctl_chan_free: invalid chan.\n");
-		return -ENOENT;
-	}
-
-	dev_priv->chans[req->cid].filp = NULL;
-
-	call = pscnv_virt_call_alloc(dev_priv);
-	cmd = dev_priv->call_data->handle + call;
-	cmd->command = PSCNV_CMD_CHAN_FREE;
-	cmd->cid = req->cid;
-	pscnv_virt_call(dev_priv, call);
-	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
-		NV_ERROR(dev, "Failed to free the chan.\n");
-		return -ENOMEM;
-	}
-	pscnv_virt_call_finish(dev_priv, call);
-
-	return 0;
-#endif
 }
 
 int pscnv_ioctl_obj_vdma_new(struct drm_device *dev, void *data,
 						struct drm_file *file_priv) {
-#if 0
 	struct drm_pscnv_obj_vdma_new *req = data;
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	struct pscnv_chan *ch;
 	int ret;
-	uint32_t oclass, inst;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
+	uint32_t call;
+	volatile struct pscnv_obj_vdma_new_cmd *cmd;
 
-	if (dev_priv->card_type != NV_50)
-		return -ENOSYS;
-
-	oclass = req->oclass;
-
-	if (oclass != 2 && oclass != 3 && oclass != 0x3d)
-		return -EINVAL;
-
+	/* this is only to check that the chan belongs to the process */
 	ch = pscnv_get_chan(dev, file_priv, req->cid);
 	if (!ch)
 		return -ENOENT;
 
-	inst = nv50_chan_dmaobj_new(ch, 0x7fc00000 | oclass, req->start, req->size);
-	if (!inst) {
-		pscnv_chan_unref(ch);
-		return -ENOMEM;
-	}
-
-	ret = pscnv_ramht_insert (&ch->ramht, req->handle, inst >> 4);
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_OBJ_VDMA_NEW;
+	cmd->cid = ch->cid;
+	cmd->handle = req->handle;
+	cmd->oclass = req->oclass;
+	cmd->start = req->start;
+	cmd->size = req->size;
+	cmd->flags = req->flags;
+	pscnv_virt_call(dev_priv, call);
+	ret = cmd->ret;
+	pscnv_virt_call_finish(dev_priv, call);
 
 	pscnv_chan_unref(ch);
-
 	return ret;
-#endif
-	return -EINVAL;
 }
 
 void pscnv_chan_cleanup(struct drm_device *dev, struct drm_file *file_priv) {
 	int cid;
 	struct pscnv_chan *ch;
+	unsigned long flags;
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 
 	for (cid = 0; cid < 128; cid++) {
 		ch = pscnv_get_chan(dev, file_priv, cid);
 		if (!ch)
 			continue;
 		ch->filp = 0;
+
+		spin_lock_irqsave(&dev_priv->ch_lock, flags);
+		BUG_ON(dev_priv->chans[ch->cid] != ch);
+		dev_priv->chans[ch->cid] = 0;
+		spin_unlock_irqrestore(&dev_priv->ch_lock, flags);
+
 		pscnv_chan_unref(ch);
 		pscnv_chan_unref(ch);
 	}
@@ -498,98 +427,92 @@ void pscnv_chan_cleanup(struct drm_device *dev, struct drm_file *file_priv) {
 
 int pscnv_ioctl_obj_eng_new(struct drm_device *dev, void *data,
 						struct drm_file *file_priv) {
-#if 0
 	struct drm_pscnv_obj_eng_new *req = data;
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	struct pscnv_chan *ch;
 	int ret;
-	int i;
-	uint32_t oclass = req->oclass;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
+	uint32_t call;
+	volatile struct pscnv_obj_eng_new_cmd *cmd;
 
-	for (i = 0; i < PSCNV_ENGINES_NUM; i++)
-		if (dev_priv->engines[i]) {
-			uint32_t *pclass = dev_priv->engines[i]->oclasses;
-			if (!pclass)
-				continue;
-			while (*pclass) {
-				if (*pclass == oclass)
-					goto found;
-				pclass++;
-			}
-		}
-	return -ENODEV;
-
-found:
 	ch = pscnv_get_chan(dev, file_priv, req->cid);
 	if (!ch)
 		return -ENOENT;
 
-	if (!ch->engdata[i]) {
-		ret = dev_priv->engines[i]->chan_alloc(dev_priv->engines[i], ch);
-		if (ret) {
-			pscnv_chan_unref(ch);
-			return ret;
-		}
-	}
-
-	ret = dev_priv->engines[i]->chan_obj_new(dev_priv->engines[i], ch, req->handle, oclass, req->flags);
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_OBJ_ENG_NEW;
+	cmd->cid = ch->cid;
+	cmd->handle = req->handle;
+	cmd->oclass = req->oclass;
+	cmd->flags = req->flags;
+	pscnv_virt_call(dev_priv, call);
+	ret = cmd->ret;
+	pscnv_virt_call_finish(dev_priv, call);
 
 	pscnv_chan_unref(ch);
 	return ret;
-#endif
-	return -EINVAL;
 }
 
 int pscnv_ioctl_fifo_init(struct drm_device *dev, void *data,
 						struct drm_file *file_priv) {
-#if 0
 	struct drm_pscnv_fifo_init *req = data;
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	struct pscnv_chan *ch;
 	int ret;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
-	if (!dev_priv->fifo || !dev_priv->fifo->chan_init_dma)
-		return -ENODEV;
+	uint32_t call;
+	volatile struct pscnv_fifo_init_cmd *cmd;
 
 	ch = pscnv_get_chan(dev, file_priv, req->cid);
 	if (!ch)
 		return -ENOENT;
 
-	ret = dev_priv->fifo->chan_init_dma(ch, req->pb_handle, req->flags, req->slimask, req->pb_start);
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_FIFO_INIT;
+	cmd->cid = ch->cid;
+	cmd->pb_handle = req->pb_handle;
+	cmd->flags = req->flags;
+	cmd->pb_start = req->pb_start;
+	cmd->slimask = req->slimask;
+	pscnv_virt_call(dev_priv, call);
+	ret = cmd->ret;
+	pscnv_virt_call_finish(dev_priv, call);
 
 	pscnv_chan_unref(ch);
-
 	return ret;
-#endif
-	return -EINVAL;
 }
 
 int pscnv_ioctl_fifo_init_ib(struct drm_device *dev, void *data,
 						struct drm_file *file_priv) {
-#if 0
 	struct drm_pscnv_fifo_init_ib *req = data;
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
 	struct pscnv_chan *ch;
 	int ret;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
-	if (!dev_priv->fifo || !dev_priv->fifo->chan_init_ib)
-		return -ENODEV;
+	uint32_t call;
+	volatile struct pscnv_fifo_init_ib_cmd *cmd;
 
 	ch = pscnv_get_chan(dev, file_priv, req->cid);
 	if (!ch)
 		return -ENOENT;
 
-	ret = dev_priv->fifo->chan_init_ib(ch, req->pb_handle, req->flags, req->slimask, req->ib_start, req->ib_order);
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_FIFO_INIT_IB;
+	cmd->cid = ch->cid;
+
+	cmd->pb_handle = req->pb_handle;
+	cmd->flags = req->flags;
+	cmd->ib_start = req->ib_start;
+	cmd->slimask = req->slimask;
+	cmd->ib_order = req->ib_order;
+
+	pscnv_virt_call(dev_priv, call);
+	ret = cmd->ret;
+	pscnv_virt_call_finish(dev_priv, call);
 
 	pscnv_chan_unref(ch);
-
 	return ret;
-#endif
-	return -EINVAL;
 }

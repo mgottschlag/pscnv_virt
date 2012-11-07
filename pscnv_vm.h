@@ -40,7 +40,9 @@ struct pscnv_vspace {
 
 
 extern struct pscnv_vspace *pscnv_vspace_new(struct drm_device *);
-extern int pscnv_vspace_map(struct pscnv_vspace *, struct pscnv_bo *, uint64_t start, uint64_t end, int back);
+extern int pscnv_vspace_map(struct pscnv_vspace *, struct pscnv_bo *,
+		uint64_t start, uint64_t end, int back,
+		uint32_t flags, uint64_t *result);
 extern int pscnv_vspace_unmap(struct pscnv_vspace *, uint64_t start);
 
 extern void pscnv_vspace_ref_free(struct kref *ref);

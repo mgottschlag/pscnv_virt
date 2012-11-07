@@ -36,10 +36,7 @@ void pscnv_gem_free_object (struct drm_gem_object *obj)
 #ifndef PSCNV_KAPI_DRM_GEM_OBJECT_HANDLE_COUNT
 	atomic_dec(&obj->handle_count);
 #endif
-	if (!vo->chan)
-		pscnv_mem_free(vo);
-	else
-		vo->gem = 0;
+	pscnv_mem_free(vo);
 #ifndef __linux__
 	drm_gem_free_mmap_offset(obj);
 #endif

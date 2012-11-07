@@ -53,24 +53,9 @@ int pscnv_mem_free(struct pscnv_bo *bo) {
 	return -1;
 }
 
-/*static int pscnv_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
-{
-	struct drm_gem_object *obj = vma->vm_private_data;
-	struct pscnv_bo *bo = obj->driver_private;
-	uint64_t offset = (uint64_t)vmf->virtual_address - vma->vm_start;
-	struct page *res;
-	if (offset > bo->size)
-		return VM_FAULT_SIGBUS;
-	res = bo->pages[offset >> PAGE_SHIFT];
-	get_page(res);
-	vmf->page = res;
-	return 0;
-}*/
-
 static struct vm_operations_struct pscnv_vm_ops = {
 	.open = drm_gem_vm_open,
 	.close = drm_gem_vm_close,
-/*	.fault = pscnv_vm_fault,*/
 };
 
 extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
@@ -107,6 +92,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 	page_count = bo->size >> PAGE_SHIFT;
 	result_pages = kmalloc(page_count * sizeof(uint32_t), GFP_KERNEL);
 	if (result_pages == NULL) {
+		drm_gem_object_unreference_unlocked(obj);
 		return -ENOMEM;
 	}
 	call = pscnv_virt_call_alloc(dev_priv);
@@ -121,6 +107,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 		kfree((void*)result_pages);
 		pscnv_virt_call_finish(dev_priv, call);
 		/* TODO: revert everything */
+		drm_gem_object_unreference_unlocked(obj);
 		return -ENOMEM;
 	}
 	pscnv_virt_call_finish(dev_priv, call);
@@ -145,6 +132,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 				PAGE_SIZE, PAGE_SHARED);
 		if (ret != 0) {
 			/* TODO: revert everything */
+			//drm_gem_object_unreference_unlocked(obj);
 			return ret;
 		}
 	}

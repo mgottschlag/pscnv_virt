@@ -32,7 +32,6 @@
 struct pscnv_chan {
 	struct drm_device *dev;
 	int cid;
-	uint64_t map_handle;
 	/* protected by ch_lock below, used for lookup */
 	/*uint32_t handle;*/
 	struct pscnv_vspace *vspace;

@@ -85,6 +85,8 @@ struct drm_pscnv_virt_private {
 
 	int flags;
 
+	int is_nv50;
+
 	/* the card type, takes NV_* as values */
 	/*enum nouveau_card_type card_type;*/
 	/* exact chipset, derived from NV_PMC_BOOT_0 */
@@ -102,6 +104,9 @@ struct drm_pscnv_virt_private {
 
 	uint64_t vram_size;
 	uint64_t vram_base;
+
+	uint64_t chan_size;
+	uint64_t chan_base;
 
 	struct pscnv_vspace *vspaces[PSCNV_VIRT_VSPACE_COUNT];
 	struct pscnv_chan *chans[PSCNV_VIRT_CHAN_COUNT];

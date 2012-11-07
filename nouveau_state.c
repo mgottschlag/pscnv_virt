@@ -138,6 +138,11 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 	memset(dev_priv->vspaces, 0, sizeof(dev_priv->vspaces));
 	memset(dev_priv->chans, 0, sizeof(dev_priv->chans));
 
+	/* the channels are directly mapped to the fourth BAR */
+	dev_priv->chan_base = drm_get_resource_start(dev, 3);
+	dev_priv->chan_size = drm_get_resource_len(dev, 3);
+	dev_priv->is_nv50 = dev_priv->chan_size == 128 * 0x2000 ? 1 : 0;
+
 #if 0
 	struct drm_nouveau_private *dev_priv;
 	uint32_t reg0, strap;

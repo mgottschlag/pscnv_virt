@@ -87,39 +87,61 @@ void pscnv_vspace_ref_free(struct kref *ref) {
 	kfree(vs);
 }
 
-/*int
+int
 pscnv_vspace_map(struct pscnv_vspace *vs, struct pscnv_bo *bo,
-		uint64_t start, uint64_t end, int back,
-		struct pscnv_mm_node **res)
+		uint64_t start, uint64_t end, int back, uint32_t flags,
+		uint64_t *result)
 {
-	struct pscnv_mm_node *node;
-	int ret;
-	struct drm_nouveau_private *dev_priv = vs->dev->dev_private;
-	mutex_lock(&vs->lock);
-	ret = dev_priv->vm->place_map(vs, bo, start, end, back, &node);
-	if (ret) {
-		mutex_unlock(&vs->lock);
-		return ret;
+	struct drm_pscnv_virt_private *dev_priv = vs->dev->dev_private;
+	volatile struct pscnv_vspace_map_cmd *cmd;
+	uint32_t call;
+
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_VSPACE_MAP;
+	cmd->vid = vs->vid;
+	cmd->handle = bo->hyper_handle;
+	cmd->back = back;
+	cmd->start = start;
+	cmd->end = end;
+	cmd->flags = flags;
+	pscnv_virt_call(dev_priv, call);
+	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
+		NV_ERROR(vs->dev, "pscnv_vspace_map: Command failed.\n");
+		pscnv_virt_call_finish(dev_priv, call);
+		return -EINVAL;
 	}
-	node->tag = bo;
-	node->tag2 = vs;
-	if (pscnv_vm_debug >= 1)
-		NV_INFO(vs->dev, "VM: vspace %d: Mapping BO %x/%d at %llx-%llx.\n", vs->vid, bo->cookie, bo->serial, node->start,
-				node->start + node->size);
-	ret = dev_priv->vm->do_map(vs, bo, node->start);
-	if (ret) {
-		pscnv_vspace_unmap_node_unlocked(node);
-	}
-	*res = node;
-	mutex_unlock(&vs->lock);
-	return ret;
+	*result = cmd->offset;
+	pscnv_virt_call_finish(dev_priv, call);
+
+	return 0;
 }
 
 int
 pscnv_vspace_unmap(struct pscnv_vspace *vs, uint64_t start) {
+	struct drm_pscnv_virt_private *dev_priv = vs->dev->dev_private;
+	volatile struct pscnv_vspace_unmap_cmd *cmd;
+	uint32_t call;
+
+	call = pscnv_virt_call_alloc(dev_priv);
+	cmd = dev_priv->call_data->handle + call;
+	cmd->command = PSCNV_CMD_VSPACE_UNMAP;
+	cmd->vid = vs->vid;
+	cmd->offset = start;
+	pscnv_virt_call(dev_priv, call);
+	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
+		NV_ERROR(vs->dev, "pscnv_vspace_unmap: Command failed.\n");
+		pscnv_virt_call_finish(dev_priv, call);
+		return -EINVAL;
+	}
+	return 0;
+
+	/* TODO: we need to decrement the buffer object refcount here! */
+#if 0
 	int ret;
 	mutex_lock(&vs->lock);
 	ret = pscnv_vspace_unmap_node_unlocked(pscnv_mm_find_node(vs->mm, start));
 	mutex_unlock(&vs->lock);
 	return ret;
-}*/
+#endif
+}
