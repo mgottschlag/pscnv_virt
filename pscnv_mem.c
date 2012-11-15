@@ -115,7 +115,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 	/* remap the object into user memory (the actual mapping is done in the
 	   pagefault handler) */
 	bo->pages = (uint32_t*)result_pages;
-	NV_ERROR(dev, "First mapped page: %d.\n", result_pages[0]);
+	//NV_ERROR(dev, "First mapped page: %d.\n", result_pages[0]);
 
 	vma->vm_flags |= VM_RESERVED | VM_IO | VM_PFNMAP | VM_DONTEXPAND;
 	vma->vm_ops = &pscnv_vm_ops;
@@ -126,7 +126,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 
 	page_count = (vma->vm_end - vma->vm_start + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	for (i = 0; i < page_count; i++) {
-		NV_ERROR(dev, "Mapping %llx to %lx.\n", dev_priv->vram_base + result_pages[i], vma->vm_start + (i << PAGE_SHIFT));
+		//NV_ERROR(dev, "Mapping %llx to %lx.\n", dev_priv->vram_base + result_pages[i], vma->vm_start + (i << PAGE_SHIFT));
 		ret = remap_pfn_range(vma, vma->vm_start + (i << PAGE_SHIFT),
 				(dev_priv->vram_base >> PAGE_SHIFT) + result_pages[i],
 				PAGE_SIZE, PAGE_SHARED);

@@ -128,12 +128,15 @@ pscnv_vspace_unmap(struct pscnv_vspace *vs, uint64_t start) {
 	cmd->command = PSCNV_CMD_VSPACE_UNMAP;
 	cmd->vid = vs->vid;
 	cmd->offset = start;
+	//NV_ERROR(vs->dev, "PSCNV_CMD_VSPACE_UNMAP.\n");
 	pscnv_virt_call(dev_priv, call);
 	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
 		NV_ERROR(vs->dev, "pscnv_vspace_unmap: Command failed.\n");
 		pscnv_virt_call_finish(dev_priv, call);
 		return -EINVAL;
 	}
+	//NV_ERROR(vs->dev, "PSCNV_CMD_VSPACE_UNMAP finished.\n");
+	pscnv_virt_call_finish(dev_priv, call);
 	return 0;
 
 	/* TODO: we need to decrement the buffer object refcount here! */
