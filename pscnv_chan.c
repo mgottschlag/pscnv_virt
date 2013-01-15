@@ -133,6 +133,7 @@ int pscnv_chan_mmap(struct file *filp, struct vm_area_struct *vma)
 	if (!ch)
 		return -ENOENT;
 
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	vma->vm_flags |= VM_RESERVED | VM_IO | VM_PFNMAP | VM_DONTEXPAND;
 	vma->vm_ops = &pscnv_chan_vm_ops;
 	vma->vm_private_data = ch;
@@ -142,10 +143,10 @@ int pscnv_chan_mmap(struct file *filp, struct vm_area_struct *vma)
 	if (dev_priv->is_nv50) {
 		return remap_pfn_range(vma, vma->vm_start,
 				(dev_priv->chan_base + cid * 0x2000) >> PAGE_SHIFT,
-				vma->vm_end - vma->vm_start, PAGE_SHARED);
+				vma->vm_end - vma->vm_start, vma->vm_page_prot);
 	} else {
 		return remap_pfn_range(vma, vma->vm_start,
 				(dev_priv->chan_base + cid * 0x1000) >> PAGE_SHIFT,
-				vma->vm_end - vma->vm_start, PAGE_SHARED);
+				vma->vm_end - vma->vm_start, vma->vm_page_prot);
 	}
 }

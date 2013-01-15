@@ -31,6 +31,12 @@
 #include "pscnv_chan.h"
 #include "pscnv_virt_call.h"
 
+struct vs_mapping {
+	uint64_t start;
+	struct pscnv_bo *bo;
+	struct rb_node node;
+};
+
 struct pscnv_vspace *
 pscnv_vspace_new (struct drm_device *dev) {
 	struct drm_pscnv_virt_private *dev_priv = dev->dev_private;
@@ -45,6 +51,7 @@ pscnv_vspace_new (struct drm_device *dev) {
 	res->dev = dev;
 	kref_init(&res->ref);
 	mutex_init(&res->lock);
+	res->mappings = RB_ROOT;
 	/* create a vspace */
 	call = pscnv_virt_call_alloc(dev_priv);
 	cmd = dev_priv->call_data->handle + call;
@@ -71,9 +78,11 @@ void pscnv_vspace_ref_free(struct kref *ref) {
 	struct drm_pscnv_virt_private *dev_priv = vs->dev->dev_private;
 	volatile struct pscnv_vspace_cmd *cmd;
 	uint32_t call;
+	struct rb_node *mapping_node;
 
 	NV_INFO(vs->dev, "VM: Freeing vspace %d\n", vs->vid);
 	
+	/* call the hypervisor to free the vspace */
 	call = pscnv_virt_call_alloc(dev_priv);
 	cmd = dev_priv->call_data->handle + call;
 	cmd->command = PSCNV_CMD_VSPACE_FREE;
@@ -84,9 +93,52 @@ void pscnv_vspace_ref_free(struct kref *ref) {
 	}
 	pscnv_virt_call_finish(dev_priv, call);
 
+	/* delete the guest memory structures */
+	mapping_node = rb_first(&vs->mappings);
+	while (mapping_node != NULL) {
+		struct vs_mapping *mapping = rb_entry(mapping_node, struct vs_mapping, node);
+		rb_erase(mapping_node, &vs->mappings);
+		kfree(mapping);
+		mapping_node = rb_first(&vs->mappings);
+	}
 	kfree(vs);
 }
 
+static struct rb_node *
+vspace_search_mapping_node(struct pscnv_vspace *vs, uint64_t start)
+{
+	struct rb_node *node = vs->mappings.rb_node;
+	while (node != NULL) {
+		struct vs_mapping *mapping = rb_entry(node, struct vs_mapping, node);
+		if (mapping->start > start) {
+			node = node->rb_left;
+		} else if (mapping->start < start) {
+			node = node->rb_right;
+		} else {
+			return node;
+		}
+	}
+	return NULL;
+}
+
+static void
+vspace_insert_mapping(struct pscnv_vspace *vs, struct vs_mapping *mapping)
+{
+	struct rb_node *parent = NULL;
+	struct rb_node **link = &vs->mappings.rb_node;
+	struct vs_mapping *entry;
+	while (*link != NULL) {
+		parent = *link;
+		entry = rb_entry(parent, struct vs_mapping, node);
+		if (entry->start > mapping->start) {
+			link = &parent->rb_left;
+		} else {
+			link = &parent->rb_right;
+		}
+	}
+	rb_link_node(&mapping->node, parent, link);
+	rb_insert_color(&mapping->node, &vs->mappings);
+}
 int
 pscnv_vspace_map(struct pscnv_vspace *vs, struct pscnv_bo *bo,
 		uint64_t start, uint64_t end, int back, uint32_t flags,
@@ -95,7 +147,9 @@ pscnv_vspace_map(struct pscnv_vspace *vs, struct pscnv_bo *bo,
 	struct drm_pscnv_virt_private *dev_priv = vs->dev->dev_private;
 	volatile struct pscnv_vspace_map_cmd *cmd;
 	uint32_t call;
+	struct vs_mapping *mapping;
 
+	/* perform the map operation in the hypervisor */
 	call = pscnv_virt_call_alloc(dev_priv);
 	cmd = dev_priv->call_data->handle + call;
 	cmd->command = PSCNV_CMD_VSPACE_MAP;
@@ -114,6 +168,18 @@ pscnv_vspace_map(struct pscnv_vspace *vs, struct pscnv_bo *bo,
 	*result = cmd->offset;
 	pscnv_virt_call_finish(dev_priv, call);
 
+	/* insert an entry into the mapping list (necessary to track existing
+	 * objects so that they can be freed later) */
+	mapping = kzalloc(sizeof *mapping, GFP_KERNEL);
+	if (mapping == NULL) {
+		return -ENOMEM;
+	}
+	mapping->start = *result;
+	mapping->bo = bo;
+	mutex_lock(&vs->lock);
+	vspace_insert_mapping(vs, mapping);
+	mutex_unlock(&vs->lock);
+
 	return 0;
 }
 
@@ -122,6 +188,8 @@ pscnv_vspace_unmap(struct pscnv_vspace *vs, uint64_t start) {
 	struct drm_pscnv_virt_private *dev_priv = vs->dev->dev_private;
 	volatile struct pscnv_vspace_unmap_cmd *cmd;
 	uint32_t call;
+	struct rb_node *mapping_node;
+	struct vs_mapping *mapping;
 
 	call = pscnv_virt_call_alloc(dev_priv);
 	cmd = dev_priv->call_data->handle + call;
@@ -137,14 +205,18 @@ pscnv_vspace_unmap(struct pscnv_vspace *vs, uint64_t start) {
 	}
 	//NV_ERROR(vs->dev, "PSCNV_CMD_VSPACE_UNMAP finished.\n");
 	pscnv_virt_call_finish(dev_priv, call);
-	return 0;
 
-	/* TODO: we need to decrement the buffer object refcount here! */
-#if 0
-	int ret;
+	/* search for the mapping in the mapping list and decrease the refcount */
 	mutex_lock(&vs->lock);
-	ret = pscnv_vspace_unmap_node_unlocked(pscnv_mm_find_node(vs->mm, start));
+	mapping_node = vspace_search_mapping_node(vs, start);
+	if (mapping_node == NULL) {
+		NV_ERROR(vs->dev, "pscnv_vspace_unmap: Unknown mapping!\n");
+	} else {
+		mapping = rb_entry(mapping_node, struct vs_mapping, node);
+		drm_gem_object_unreference(mapping->bo->gem);
+	}
 	mutex_unlock(&vs->lock);
-	return ret;
-#endif
+
+	return 0;
 }
+

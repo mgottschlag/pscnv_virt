@@ -34,6 +34,11 @@ struct pscnv_alloc_mem_cmd {
     uint32_t handle;
 };
 
+struct pscnv_free_mem_cmd {
+    uint32_t command;
+    uint32_t handle;
+};
+
 struct pscnv_map_cmd {
     uint32_t command;
     uint32_t handle;

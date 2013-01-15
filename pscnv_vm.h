@@ -27,6 +27,8 @@
 #ifndef __PSCNV_VM_H__
 #define __PSCNV_VM_H__
 
+#include <linux/rbtree.h>
+
 struct pscnv_bo;
 struct pscnv_chan;
 
@@ -36,6 +38,7 @@ struct pscnv_vspace {
 	struct mutex lock;
 	struct drm_file *filp;
 	struct kref ref;
+	struct rb_root mappings;
 };
 
 
