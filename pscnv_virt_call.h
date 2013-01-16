@@ -42,8 +42,7 @@ struct pscnv_free_mem_cmd {
 struct pscnv_map_cmd {
     uint32_t command;
     uint32_t handle;
-    uint64_t result_table;
-    uint32_t page_count;
+    uint32_t start;
 };
 
 struct pscnv_vspace_cmd {

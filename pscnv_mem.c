@@ -83,9 +83,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 	uint32_t call;
 	struct drm_local_map *call_data = dev_priv->call_data;
 	volatile struct pscnv_map_cmd *cmd;
-	unsigned int page_count, i;
-	volatile uint32_t *result_pages;
-	int ret;
+	unsigned int page_count;
 
 	if (vma->vm_pgoff * PAGE_SIZE < (1ull << 31))
 		return drm_mmap(filp, vma);
@@ -106,33 +104,23 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 	/* tell the hypervisor to map the object */
 	/* TODO: Skip this if the object is already mapped */
 	page_count = bo->size >> PAGE_SHIFT;
-	result_pages = kmalloc(page_count * sizeof(uint32_t), GFP_KERNEL);
-	if (result_pages == NULL) {
-		drm_gem_object_unreference_unlocked(obj);
-		return -ENOMEM;
-	}
 	call = pscnv_virt_call_alloc(dev_priv);
 	cmd = call_data->handle + call;
 	cmd->command = PSCNV_CMD_MAP;
 	cmd->handle = bo->hyper_handle;
-	cmd->page_count = page_count;
-	cmd->result_table = virt_to_phys(result_pages);
 	pscnv_virt_call(dev_priv, call);
 	if (cmd->command != PSCNV_RESULT_NO_ERROR) {
-		NV_ERROR(dev, "Memory allocation failed.\n");
-		kfree((void*)result_pages);
+		NV_ERROR(dev, "Mapping failed.\n");
 		pscnv_virt_call_finish(dev_priv, call);
 		/* TODO: revert everything */
 		drm_gem_object_unreference_unlocked(obj);
 		return -ENOMEM;
 	}
+	bo->start = cmd->start;
 	pscnv_virt_call_finish(dev_priv, call);
 
 	/* remap the object into user memory (the actual mapping is done in the
 	   pagefault handler) */
-	bo->pages = (uint32_t*)result_pages;
-	//NV_ERROR(dev, "First mapped page: %d.\n", result_pages[0]);
-
 	vma->vm_flags |= VM_RESERVED | VM_IO | VM_PFNMAP | VM_DONTEXPAND;
 	vma->vm_ops = &pscnv_vm_ops;
 	vma->vm_private_data = obj;
@@ -141,17 +129,7 @@ extern int pscnv_mmap(struct file *filp, struct vm_area_struct *vma) {
 
 	vma->vm_file = filp;
 
-	page_count = (vma->vm_end - vma->vm_start + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	for (i = 0; i < page_count; i++) {
-		//NV_ERROR(dev, "Mapping %llx to %lx.\n", dev_priv->vram_base + result_pages[i], vma->vm_start + (i << PAGE_SHIFT));
-		ret = remap_pfn_range(vma, vma->vm_start + (i << PAGE_SHIFT),
-				(dev_priv->vram_base >> PAGE_SHIFT) + result_pages[i],
-				PAGE_SIZE, vma->vm_page_prot);
-		if (ret != 0) {
-			/* TODO: revert everything */
-			//drm_gem_object_unreference_unlocked(obj);
-			return ret;
-		}
-	}
-	return 0;
+	return remap_pfn_range(vma, vma->vm_start, 
+			(dev_priv->vram_base + bo->start) >> PAGE_SHIFT,
+			vma->vm_end - vma->vm_start, PAGE_SHARED);
 }

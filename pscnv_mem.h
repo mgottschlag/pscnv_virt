@@ -45,8 +45,8 @@ struct pscnv_bo {
 	/* the following used for GEM objects only */
 	uint32_t user[8];
 	struct drm_gem_object *gem;
-	/* list of offsets into virtual vram */
-	uint32_t *pages;
+	/* offset into virtual vram bar */
+	uint32_t start;
 };
 
 extern struct pscnv_bo *pscnv_mem_alloc(struct drm_device *,
